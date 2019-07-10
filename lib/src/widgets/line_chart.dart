@@ -14,19 +14,23 @@ import 'package:fcharts/src/widgets/chart_view.dart';
 import 'package:flutter/material.dart';
 import 'package:meta/meta.dart';
 
+typedef void LineChartCallback<Line>(Line touched);
+
 class Line<Datum, X, Y> {
   Line(
       {@required this.data,
-      @required this.xFn,
-      @required this.yFn,
-      ChartAxis<X> xAxis,
-      ChartAxis<Y> yAxis,
-      this.stroke: const PaintOptions.stroke(color: Colors.black),
-      this.fill,
-      this.curve: LineCurves.monotone,
-      this.marker: const MarkerOptions(),
-      this.markerFn,
-      this.legend})
+        @required this.xFn,
+        @required this.yFn,
+        ChartAxis<X> xAxis,
+        ChartAxis<Y> yAxis,
+        this.stroke: const PaintOptions.stroke(color: Colors.black),
+        this.fill,
+        this.onTouch,
+        this.onRelease,
+        this.curve: LineCurves.monotone,
+        this.marker: const MarkerOptions(),
+        this.markerFn,
+        this.legend})
       : this.xAxis = xAxis ?? new ChartAxis<X>(),
         this.yAxis = yAxis ?? new ChartAxis<Y>();
 
@@ -39,6 +43,9 @@ class Line<Datum, X, Y> {
   ChartAxis<X> xAxis;
 
   ChartAxis<Y> yAxis;
+
+  final LineChartCallback<Datum> onTouch;
+  final VoidCallback onRelease;
 
   PaintOptions stroke;
 
@@ -70,13 +77,14 @@ class Line<Datum, X, Y> {
       stroke: stroke,
       fill: fill,
       curve: curve,
+
     );
   }
 
   List<LinePointDrawable> _generatePoints(
-    SpanBase<X> xSpan,
-    SpanBase<Y> ySpan,
-  ) {
+      SpanBase<X> xSpan,
+      SpanBase<Y> ySpan,
+      ) {
     return new List.generate(data.length, (j) {
       final datum = data[j];
       final X x = xFn(datum);
@@ -99,20 +107,30 @@ class Line<Datum, X, Y> {
   }
 }
 
+
+
 class LineChart extends Chart {
   LineChart({
     Key key,
     @required this.lines,
     this.vertical: false,
+    this.onTouch,
+    this.onRelease,
+    this.onMove,
     this.chartPadding: const EdgeInsets.all(20.0),
     this.legendPosition: ChartPosition.top,
     this.legendLayout: LegendLayout.horizontal,
     this.legendOffset: Offset.zero,
+    this.testActive,
   }) : super(key: key);
 
   final List<Line> lines;
 
   final bool vertical;
+
+  final LineChartCallback<Line> onTouch;
+  final VoidCallback onRelease;
+  final VoidCallback onMove;
 
   final EdgeInsets chartPadding;
 
@@ -122,11 +140,16 @@ class LineChart extends Chart {
 
   final Offset legendOffset;
 
+  final Function testActive;
+
   @override
   _LineChartState createState() => new _LineChartState();
 }
 
 class _LineChartState extends State<LineChart> {
+  Map<int, int> _active = {};
+
+
   Widget build(BuildContext context) {
     final lines = widget.lines;
     final vertical = widget.vertical;
@@ -154,7 +177,7 @@ class _LineChartState extends State<LineChart> {
 
     final axesData = axes.map((axis) {
       var position =
-          xAxes.contains(axis) ? ChartPosition.bottom : ChartPosition.left;
+      xAxes.contains(axis) ? ChartPosition.bottom : ChartPosition.left;
 
       if (axis.opposite) {
         position = position == ChartPosition.bottom
@@ -173,21 +196,56 @@ class _LineChartState extends State<LineChart> {
     }).toList();
 
     final legendItems =
-        widget.lines.where((line) => line.legend != null).map((line) {
+    widget.lines.where((line) => line.legend != null).map((line) {
       return line.legend.toDrawable();
     });
 
     final legend = legendItems.isEmpty
         ? null
         : new LegendDrawable(
-            items: legendItems.toList(),
-            position: widget.legendPosition,
-            layout: widget.legendLayout,
-            offset: widget.legendOffset,
-          );
+      items: legendItems.toList(),
+      position: widget.legendPosition,
+      layout: widget.legendLayout,
+      offset: widget.legendOffset,
+    );
 
     return new ChartView(
       charts: lineCharts,
+      animationDuration: _active.isEmpty ? new Duration(milliseconds: 500) : new Duration(milliseconds: 200),
+      onMove: (pointer, events) {
+        for (final event in events.values) {
+          int active = (event as LineChartTouch).nearestHorizontally;
+          if (_active[pointer] == active)
+            return;
+          setState(() {
+            _active[pointer] = active;
+          });
+
+//          if (widget.onTouch != null)
+//
+//           widget.onTouch(widget.lines[active]);
+          break;
+        }
+      },
+      onTouch: (pointer, events) {
+        for (final event in events.values) {
+          int active = (event as LineChartTouch).nearestHorizontally;
+
+          widget.testActive(pointer,active);
+
+//          if (widget.onTouch != null)
+//            widget.onTouch(widget.lines[active]);
+
+          break;
+        }
+      },
+      onRelease: (pointer) {
+        setState(() {
+          _active.remove(pointer);
+          if (widget.onRelease != null)
+            widget.onRelease();
+        });
+      },
       decor: new ChartDecor(
         axes: axesData,
         legend: legend,
